@@ -116,6 +116,18 @@ body{
 .chip:active{transform:translateY(2px);box-shadow:none;}
 .chip b{color:#7b4fc4;}
 
+/* ---------- set map ---------- */
+#setGrid{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:860px;margin:14px 0;max-height:58vh;overflow-y:auto;padding:8px;}
+.setcard{font-family:inherit;background:#fff;border:4px solid #fff;border-radius:20px;padding:10px 6px;cursor:pointer;width:clamp(100px,21vw,132px);box-shadow:0 5px 0 rgba(0,0,0,.1);display:flex;flex-direction:column;align-items:center;gap:4px;}
+.setcard:active{transform:translateY(3px);box-shadow:none;}
+.setcard .se{font-size:36px;line-height:1.25;}
+.setcard .sn{font-weight:bold;font-size:14px;color:#4a3b6b;}
+.setcard .sp{font-size:12px;color:#7a6a9a;}
+.setcard.done{border-color:#ffd93d;background:#fffbe8;}
+.setcard.current{border-color:#4d96ff;box-shadow:0 5px 0 rgba(0,0,0,.1),0 0 14px #4d96ff88;}
+.hist{font-size:15px;color:#4a3b6b;text-align:left;max-height:170px;overflow-y:auto;background:#f6f1ff;border-radius:14px;padding:10px 14px;margin:8px 0;}
+.hist div{margin:4px 0;}
+
 /* ---------- overlay / modal ---------- */
 #overlay{position:fixed;inset:0;background:rgba(40,20,70,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;}
 .celebrate{background:linear-gradient(180deg,#fff,#fff7d6);border-radius:32px;padding:34px 40px;text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.3);max-width:92vw;max-height:92vh;overflow-y:auto;}
@@ -146,6 +158,7 @@ body{
   <label class="namelabel">Your name: <input id="nameInput" value="Ava" maxlength="12"/></label>
   <button id="startBtn" class="bigbtn">▶ Start Adventure</button>
   <button id="testSoundBtn" class="bigbtn" style="font-size:20px;padding:12px 30px;margin-top:14px;background:linear-gradient(180deg,#7cc7ff,#4d96ff);box-shadow:0 7px 0 #2f6fd0,0 12px 20px rgba(0,0,0,.18);animation:none;">🔊 Test Sound</button>
+  <button id="mapStartBtn" class="bigbtn" style="font-size:20px;padding:12px 30px;margin-top:14px;background:linear-gradient(180deg,#9be15d,#51cf66);box-shadow:0 7px 0 #379e46,0 12px 20px rgba(0,0,0,.18);animation:none;">🗺️ Choose a Set</button>
   <p class="parent-note">👪 Grown-ups: everything is spoken aloud — no reading needed. Turn the sound on! 🔊</p>
 </div>
 
@@ -154,6 +167,7 @@ body{
   <div id="topbar">
     <div id="jar" class="jar">⭐ <span id="starCount">0</span></div>
     <div id="setProgress"></div>
+    <button id="mapBtn" class="iconbtn" title="choose set">🗺️</button>
     <button id="muteBtn" class="iconbtn" title="sound">🔊</button>
     <button id="parentBtn" class="iconbtn" title="grown-ups">👪</button>
   </div>
@@ -164,6 +178,13 @@ body{
   </div>
   <div id="stage"></div>
   <div id="shelfWrap"><div class="shelf-label">📚 My Words — tap one to hear it!</div><div id="shelf"></div></div>
+</div>
+
+<!-- SET MAP -->
+<div id="mapScreen" class="screen hidden">
+  <h2 class="stagetitle">🗺️ Choose a Set</h2>
+  <div id="setGrid"></div>
+  <button id="mapBackBtn" class="bigbtn" style="font-size:22px;padding:14px 36px;animation:none;">← Back</button>
 </div>
 
 <div id="overlay" class="hidden"></div>
@@ -334,14 +355,42 @@ function flyStar(x,y,gold){
 function showOverlay(html){overlay.innerHTML=html;overlay.classList.remove("hidden");}
 function hideOverlay(){overlay.classList.add("hidden");overlay.innerHTML="";}
 
+/* ================= SAVE / PROGRESS LOG ================= */
+const SAVE_KEY="cocoWordAdventure.v1";
+function defaultSave(){return {v:1,stars:0,learned:{},setsDone:{},sessions:[],name:"Ava"};}
+let SAVE=defaultSave();
+function loadSave(){
+  try{
+    const raw=localStorage.getItem(SAVE_KEY);
+    if(raw){const s=JSON.parse(raw);if(s&&s.v===1)SAVE=Object.assign(defaultSave(),s);}
+  }catch(e){SAVE=defaultSave();}
+}
+function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(SAVE));}catch(e){}}
+function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function learnedCount(){return Object.keys(SAVE.learned).length;}
+function firstOpenSet(){return WORD_SETS.findIndex(s=>s.some(o=>!SAVE.learned[o.w]));}
+
 /* ================= GAME STATE ================= */
 let playerName="Ava",setIndex=0,words=[],rr=0,pt=0,practiceCount=0,bonusIdx=0,busy=false;
 let stats={rounds:0,correct:0,learnedWords:[]};
+let setWords0=0,setRounds0=0,setCorrect0=0,practiceMode=false;
 
 function lock(ms,fn){busy=true;setTimeout(()=>{busy=false;if(fn)fn();},ms);}
 function buildSet(){
-  words=WORD_SETS[setIndex].map(o=>({w:o.w,e:o.e,seen:false,streak:0,ease:"full",learned:false,priority:false}));
-  rr=0;pt=0;practiceCount=0;bonusIdx=0;updateProgress();
+  words=WORD_SETS[setIndex].map(o=>{
+    const L=practiceMode?false:!!SAVE.learned[o.w];
+    return {w:o.w,e:o.e,seen:L,streak:0,ease:L?"mid":"full",learned:L,priority:false};
+  });
+  rr=0;pt=0;practiceCount=0;bonusIdx=0;
+  setWords0=learnedCount();setRounds0=stats.rounds;setCorrect0=stats.correct;
+  updateProgress();
+}
+function logSetSession(){
+  const w=learnedCount()-setWords0;
+  const r=stats.rounds-setRounds0,c=stats.correct-setCorrect0;
+  SAVE.sessions.unshift({d:todayStr(),set:setIndex+1,words:w,rounds:r,acc:r?Math.round(100*c/r):100});
+  SAVE.sessions=SAVE.sessions.slice(0,40);
+  persist();
 }
 function updateProgress(){
   el("setProgress").innerHTML=`<span class="setlabel">Set ${setIndex+1}</span>`+
@@ -384,6 +433,7 @@ function wordWrong(w){
 }
 function learnWord(w){
   w.learned=true;stats.learnedWords.push(w.w);addChip(w);updateProgress();
+  SAVE.learned[w.w]=true;SAVE.stars=stars;persist();
   showOverlay(`<div class="celebrate pop"><div class="big-emoji">🌟</div><h2>${w.e} ${w.w} learned!</h2><p>${pick(PRAISE)}, ${playerName}!</p></div>`);
   fanfare();confetti(60);
   speak(`${spellSay(w.w)} ${wn(w.w)} learned! Amazing, ${playerName}!`);
@@ -545,8 +595,10 @@ function renderSetComplete(){
   speak(`Wow, ${playerName}! You finished set ${setIndex+1}!`);
   el("contBtn").onclick=()=>{
     if(busy)return;blip();hideOverlay();
+    if(!practiceMode){SAVE.setsDone[setIndex]=true;}
+    SAVE.stars=stars;logSetSession();persist();
     if(last){showFinal();}
-    else{setIndex++;buildSet();nextRound();}
+    else{setIndex++;practiceMode=false;buildSet();nextRound();}
   };
 }
 
@@ -557,16 +609,58 @@ function showFinal(){
     return `<span class="chip">${e} <b>${w}</b></span>`;
   }).join("");
   stage.innerHTML=`<div class="big-emoji pop">🏆</div><h2 class="stagetitle">You learned ${stats.learnedWords.length} words!</h2>`;
-  showOverlay(`<div class="celebrate pop"><div class="big-emoji">🌟</div><h2>Amazing, ${playerName}!</h2><p>You learned ${stats.learnedWords.length} words! 🎉</p><div class="tiles-row" style="margin-bottom:16px;max-width:420px;">${list}</div><button class="bigbtn" id="againBtn">Play Again 🔁</button></div>`);
+  showOverlay(`<div class="celebrate pop"><div class="big-emoji">🌟</div><h2>Amazing, ${playerName}!</h2><p>You learned ${stats.learnedWords.length} words! 🎉</p><div class="tiles-row" style="margin-bottom:16px;max-width:420px;">${list}</div><button class="bigbtn" id="mapFinalBtn">🗺️ Choose a Set</button></div>`);
   fanfare();confetti(120);
   speak(`Amazing, ${playerName}! You learned ${stats.learnedWords.length} words!`);
-  el("againBtn").onclick=()=>{
+  el("mapFinalBtn").onclick=()=>{
     if(busy)return;blip();hideOverlay();
-    setIndex=0;stars=0;el("starCount").textContent="0";
-    stats={rounds:0,correct:0,learnedWords:[]};shelf.innerHTML="";
-    buildSet();nextRound();
+    openMap("game");
   };
 }
+
+/* ================= SET MAP ================= */
+let mapReturn="start";
+function openMap(from){
+  mapReturn=from||"start";
+  SAVE.stars=stars;persist();hideOverlay();
+  renderMap();
+  el("startScreen").classList.add("hidden");
+  el("gameScreen").classList.add("hidden");
+  el("mapScreen").classList.remove("hidden");
+  speak("Choose a set!");
+}
+function renderMap(){
+  const g=el("setGrid");g.innerHTML="";
+  WORD_SETS.forEach((s,i)=>{
+    const n=s.filter(o=>SAVE.learned[o.w]).length;
+    const done=n===s.length;
+    const b=document.createElement("button");
+    b.className="setcard"+(done?" done":"")+(i===setIndex?" current":"");
+    b.innerHTML=`<span class="se">${s.map(o=>o.e).join("")}</span><span class="sn">Set ${i+1}</span><span class="sp">${done?"✅ replay":n+"/"+s.length+" words"}</span>`;
+    b.onclick=()=>{blip();chooseSet(i);};
+    g.appendChild(b);
+  });
+}
+function chooseSet(i){
+  playerName=(el("nameInput").value||"Ava").trim()||"Ava";
+  setIndex=i;hideOverlay();
+  practiceMode=WORD_SETS[i].every(o=>SAVE.learned[o.w]); /* replay learned sets for fun */
+  el("mapScreen").classList.add("hidden");
+  el("startScreen").classList.add("hidden");
+  el("gameScreen").classList.remove("hidden");
+  buildSet();
+  const s=WORD_SETS[setIndex];
+  speak(practiceMode?`Set ${setIndex+1} again! Have fun!`:`Set ${setIndex+1}! ${s.map(o=>o.e+" "+wn(o.w)).join(", ")}!`);
+  setTimeout(nextRound,600);
+}
+function closeMap(){
+  blip();
+  el("mapScreen").classList.add("hidden");
+  el(mapReturn==="game"?"gameScreen":"startScreen").classList.remove("hidden");
+}
+el("mapBtn").onclick=()=>{if(busy)return;openMap("game");};
+el("mapStartBtn").onclick=()=>{ac();openMap("start");};
+el("mapBackBtn").onclick=closeMap;
 
 /* ================= SHELF & PARENT ================= */
 function addChip(w){
@@ -577,16 +671,29 @@ function addChip(w){
 }
 el("parentBtn").onclick=()=>{
   const acc=stats.rounds?Math.round(100*stats.correct/stats.rounds):100;
-  const wl=stats.learnedWords.map(w=>{
-    let e="⭐";WORD_SETS.flat().forEach(o=>{if(o.w===w)e=o.e;});
-    return `${e} ${w}`;
-  }).join(", ")||"—";
+  const total=learnedCount(),setsDone=Object.keys(SAVE.setsDone).length;
+  const hist=SAVE.sessions.slice(0,10).map(s=>
+    `<div>📅 ${s.d} — Set ${s.set}: +${s.words} word${s.words===1?"":"s"}, ${s.rounds} rounds (${s.acc}%)</div>`
+  ).join("")||"<div>No play history yet.</div>";
   el("parentStats").innerHTML=`
-    <p>⭐ Stars: <b>${stars}</b> &nbsp;•&nbsp; 🎯 Rounds: <b>${stats.rounds}</b> (${acc}% right)</p>
-    <p>📚 Words learned (${stats.learnedWords.length}):</p>
-    <p class="wordlist">${wl}</p>
-    <p>🗺️ On set <b>${setIndex+1}</b> of ${WORD_SETS.length}</p>`;
+    <p>⭐ Stars: <b>${stars}</b> &nbsp;•&nbsp; 🎯 This visit: <b>${stats.rounds}</b> rounds (${acc}% right)</p>
+    <p>📚 All time: <b>${total}</b>/${WORD_SETS.length*3} words &nbsp;•&nbsp; 🗺️ Sets finished: <b>${setsDone}</b>/${WORD_SETS.length}</p>
+    <p>🗺️ On set <b>${setIndex+1}</b> of ${WORD_SETS.length}</p>
+    <p style="margin-bottom:4px"><b>📜 Recent plays</b></p>
+    <div class="hist">${hist}</div>
+    <button id="resetSave" class="bigbtn" style="font-size:15px;padding:10px 22px;animation:none;background:linear-gradient(180deg,#ff9d9d,#e05252);box-shadow:0 5px 0 #a83a3a;">Reset all progress</button>`;
   el("parentModal").classList.remove("hidden");
+  el("resetSave").onclick=()=>{
+    if(confirm("Erase ALL saved stars, words, and history?")){
+      const nm=playerName;
+      SAVE=defaultSave();SAVE.name=nm;persist();
+      stars=0;el("starCount").textContent="0";practiceMode=false;
+      stats={rounds:0,correct:0,learnedWords:[]};shelf.innerHTML="";
+      setIndex=0;buildSet();nextRound();
+      el("parentModal").classList.add("hidden");
+      speak("Progress reset. Let's start fresh!");
+    }
+  };
 };
 el("closeParent").onclick=()=>el("parentModal").classList.add("hidden");
 el("muteBtn").onclick=()=>{
@@ -609,13 +716,33 @@ el("testSoundBtn").onclick=()=>{
 };
 el("startBtn").onclick=()=>{
   playerName=(el("nameInput").value||"Ava").trim()||"Ava";
+  SAVE.name=playerName;persist();
   ac();blip();
+  const fi=firstOpenSet();
+  if(fi<0){openMap("start");speak("Wow! You learned every single word! Pick any set to play again!");return;}
+  setIndex=fi;practiceMode=false;
   el("startScreen").classList.add("hidden");
   el("gameScreen").classList.remove("hidden");
   buildSet();
   speak(`Hi ${playerName}! I'm Coco! Let's learn words together!`);
   setTimeout(nextRound,2200);
 };
+
+/* ---- init: restore saved progress ---- */
+function hydrateShelf(){
+  shelf.innerHTML="";
+  WORD_SETS.flat().forEach(o=>{if(SAVE.learned[o.w])addChip({w:o.w,e:o.e});});
+}
+loadSave();
+stars=SAVE.stars;el("starCount").textContent=stars;
+el("nameInput").value=SAVE.name||"Ava";
+hydrateShelf();
+(function(){
+  const fi=firstOpenSet();
+  if(fi<0)el("startBtn").textContent="🌟 You did it! Play again";
+  else if(learnedCount()>0)el("startBtn").textContent=`▶ Continue — Set ${fi+1}`;
+})();
+window.addEventListener("pagehide",()=>{SAVE.stars=stars;persist();});
 </script>
 </body>
 </html>
