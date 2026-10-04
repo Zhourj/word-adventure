@@ -145,6 +145,7 @@ body{
   <p class="subtitle">Learn words with Coco the fox! 🦊✨</p>
   <label class="namelabel">Your name: <input id="nameInput" value="Ava" maxlength="12"/></label>
   <button id="startBtn" class="bigbtn">▶ Start Adventure</button>
+  <button id="testSoundBtn" class="bigbtn" style="font-size:20px;padding:12px 30px;margin-top:14px;background:linear-gradient(180deg,#7cc7ff,#4d96ff);box-shadow:0 7px 0 #2f6fd0,0 12px 20px rgba(0,0,0,.18);animation:none;">🔊 Test Sound</button>
   <p class="parent-note">👪 Grown-ups: everything is spoken aloud — no reading needed. Turn the sound on! 🔊</p>
 </div>
 
@@ -283,6 +284,7 @@ function speak(text){
   try{
     const ss=window.speechSynthesis;if(!ss)return;
     ss.cancel();
+    try{ss.resume();}catch(e){}   /* iOS sometimes leaves speech paused */
     const u=new SpeechSynthesisUtterance(text);
     u.rate=0.92;u.pitch=1.25;u.lang="en-US";
     try{
@@ -595,6 +597,16 @@ el("muteBtn").onclick=()=>{
 el("repeatBtn").onclick=()=>{if(lastSay)speak(lastSay);};
 
 /* ================= BOOT ================= */
+/* iOS/iPadOS: re-unlock audio on every tap (it can re-suspend) */
+document.addEventListener("pointerdown",()=>{
+  try{ac();}catch(e){}
+  try{if(window.speechSynthesis)window.speechSynthesis.resume();}catch(e){}
+},{passive:true});
+el("testSoundBtn").onclick=()=>{
+  ac();blip();
+  setTimeout(correctSound,250);
+  speak("Hello! If you can hear my voice and the beeps, your sound is working!");
+};
 el("startBtn").onclick=()=>{
   playerName=(el("nameInput").value||"Ava").trim()||"Ava";
   ac();blip();
